@@ -64,13 +64,15 @@ let enemies=[], bullets=[], enemyBullets=[];
 let keys={}, hp=100, gameStarted=false;
 let wave=1;
 
+let walls=[];
+let shield, shieldHP=100;
+
+// ================= START =================
 function startGame(){
 document.getElementById("menu").style.display="none";
 document.getElementById("crosshair").style.display="block";
-
 init();
 gameStarted=true;
-
 document.body.requestPointerLock();
 animate();
 }
@@ -88,8 +90,7 @@ renderer.setSize(window.innerWidth,window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
 // LIGHT
-let light=new THREE.HemisphereLight(0xffffff,0x222222,1.2);
-scene.add(light);
+scene.add(new THREE.HemisphereLight(0xffffff,0x222222,1.2));
 
 // FLOOR
 let floor=new THREE.Mesh(
@@ -99,7 +100,26 @@ new THREE.MeshStandardMaterial({color:0x111111})
 floor.rotation.x=-Math.PI/2;
 scene.add(floor);
 
-// PLAYER
+// ================= WALLS =================
+let wallTexture=new THREE.TextureLoader().load("wall.png");
+
+function createWall(x,z,w,h,d){
+let wall=new THREE.Mesh(
+new THREE.BoxGeometry(w,h,d),
+new THREE.MeshStandardMaterial({map:wallTexture})
+);
+wall.position.set(x,h/2,z);
+scene.add(wall);
+walls.push(wall);
+}
+
+// Arène centrale
+createWall(0,-20,40,6,2);
+createWall(0,20,40,6,2);
+createWall(-20,0,2,6,40);
+createWall(20,0,2,6,40);
+
+// ================= PLAYER =================
 player=new THREE.Mesh(
 new THREE.BoxGeometry(1,2,1),
 new THREE.MeshStandardMaterial({color:0x222222})
@@ -107,14 +127,14 @@ new THREE.MeshStandardMaterial({color:0x222222})
 player.position.set(0,1,0);
 scene.add(player);
 
-// CAMERA SYSTEM
+// CAMERA
 cameraPivot=new THREE.Object3D();
 cameraPivot.position.y=1.5;
 player.add(cameraPivot);
 cameraPivot.add(camera);
 camera.position.set(0,0,0);
 
-// GUN
+// ================= GUN =================
 let gun=new THREE.Mesh(
 new THREE.BoxGeometry(0.4,0.3,1.5),
 new THREE.MeshStandardMaterial({color:0x555555,metalness:1,roughness:0.4})
@@ -122,11 +142,30 @@ new THREE.MeshStandardMaterial({color:0x555555,metalness:1,roughness:0.4})
 gun.position.set(0.5,-0.3,-1);
 camera.add(gun);
 
+// ================= SHIELD =================
+shield=new THREE.Mesh(
+new THREE.SphereGeometry(2,32,32),
+new THREE.MeshStandardMaterial({
+color:0x00ffff,
+transparent:true,
+opacity:0.25
+})
+);
+shield.visible=false;
+scene.add(shield);
+
 spawnWave();
 }
 
-// CONTROLS
-document.addEventListener("keydown",e=>keys[e.key.toLowerCase()]=true);
+// ================= CONTROLS =================
+document.addEventListener("keydown",e=>{
+keys[e.key.toLowerCase()]=true;
+
+if(e.key.toLowerCase()==="e"){
+shield.visible=!shield.visible;
+}
+});
+
 document.addEventListener("keyup",e=>keys[e.key.toLowerCase()]=false);
 
 let yaw=0,pitch=0;
@@ -140,7 +179,7 @@ cameraPivot.rotation.x=pitch;
 }
 });
 
-// SHOOT
+// ================= SHOOT =================
 document.addEventListener("mousedown",()=>{
 if(!gameStarted) return;
 
@@ -159,7 +198,7 @@ scene.add(b);
 bullets.push(b);
 });
 
-// SPAWN WAVE
+// ================= SPAWN =================
 function spawnWave(){
 for(let i=0;i<wave*3;i++){
 let e=new THREE.Mesh(
@@ -167,9 +206,9 @@ new THREE.BoxGeometry(1.5,2,1.5),
 new THREE.MeshStandardMaterial({color:0x000000})
 );
 e.position.set(
-(Math.random()-0.5)*60,
+(Math.random()-0.5)*30,
 1,
-(Math.random()-0.5)*60
+(Math.random()-0.5)*30
 );
 e.userData.cool=0;
 scene.add(e);
@@ -177,7 +216,7 @@ enemies.push(e);
 }
 }
 
-// LOOP
+// ================= LOOP =================
 function animate(){
 requestAnimationFrame(animate);
 if(!gameStarted) return;
@@ -192,29 +231,62 @@ let right=new THREE.Vector3().crossVectors(forward,new THREE.Vector3(0,1,0));
 
 let speed=0.15;
 
-if(keys["w"]) player.position.add(forward.clone().multiplyScalar(speed));
-if(keys["s"]) player.position.add(forward.clone().multiplyScalar(-speed));
-if(keys["a"]) player.position.add(right.clone().multiplyScalar(-speed));
-if(keys["d"]) player.position.add(right.clone().multiplyScalar(speed));
+let nextPos=player.position.clone();
 
-// PLAYER BULLETS
-bullets.forEach((b)=>{
+if(keys["w"]) nextPos.add(forward.clone().multiplyScalar(speed));
+if(keys["s"]) nextPos.add(forward.clone().multiplyScalar(-speed));
+if(keys["a"]) nextPos.add(right.clone().multiplyScalar(-speed));
+if(keys["d"]) nextPos.add(right.clone().multiplyScalar(speed));
+
+// Collision murs joueur
+let blocked=false;
+walls.forEach(w=>{
+let box=new THREE.Box3().setFromObject(w);
+if(box.containsPoint(nextPos)) blocked=true;
+});
+if(!blocked) player.position.copy(nextPos);
+
+shield.position.copy(player.position);
+
+// ================= PLAYER BULLETS =================
+bullets.forEach((b,bi)=>{
 b.position.add(b.userData.vel);
 
-enemies.forEach((e,i)=>{
-if(b.position.distanceTo(e.position)<1){
+// collision murs
+walls.forEach(w=>{
+let box=new THREE.Box3().setFromObject(w);
+if(box.containsPoint(b.position)){
+scene.remove(b);
+bullets.splice(bi,1);
+}
+});
+
+// collision ennemis
+enemies.forEach((e,ei)=>{
+let box=new THREE.Box3().setFromObject(e);
+if(box.containsPoint(b.position)){
 scene.remove(e);
-enemies.splice(i,1);
+enemies.splice(ei,1);
+scene.remove(b);
+bullets.splice(bi,1);
 }
 });
 });
 
-// ENEMY AI
+// ================= ENEMY AI =================
 enemies.forEach(e=>{
 e.lookAt(player.position);
 
 let dir=player.position.clone().sub(e.position).normalize();
-e.position.add(dir.multiplyScalar(0.03));
+let move=e.position.clone().add(dir.multiplyScalar(0.03));
+
+// collision murs ennemis
+let blocked=false;
+walls.forEach(w=>{
+let box=new THREE.Box3().setFromObject(w);
+if(box.containsPoint(move)) blocked=true;
+});
+if(!blocked) e.position.copy(move);
 
 e.userData.cool--;
 if(e.userData.cool<=0){
@@ -230,13 +302,36 @@ e.userData.cool=120;
 }
 });
 
-// ENEMY BULLETS
-enemyBullets.forEach(b=>{
+// ================= ENEMY BULLETS =================
+enemyBullets.forEach((b,bi)=>{
 b.position.add(b.userData.vel);
+
+// collision murs
+walls.forEach(w=>{
+let box=new THREE.Box3().setFromObject(w);
+if(box.containsPoint(b.position)){
+scene.remove(b);
+enemyBullets.splice(bi,1);
+}
+});
+
+// shield
+if(shield.visible && shieldHP>0){
+if(b.position.distanceTo(player.position)<2){
+shieldHP-=10;
+scene.remove(b);
+enemyBullets.splice(bi,1);
+if(shieldHP<=0) shield.visible=false;
+return;
+}
+}
+
+// joueur
 if(b.position.distanceTo(player.position)<1){
 hp-=5;
 document.getElementById("hp").textContent=hp;
 scene.remove(b);
+enemyBullets.splice(bi,1);
 if(hp<=0){
 document.getElementById("gameOver").style.display="flex";
 gameStarted=false;
@@ -259,5 +354,6 @@ renderer.render(scene,camera);
 }
 
 </script>
+
 </body>
 </html>
