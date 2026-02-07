@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Glitch Area - Infiltration</title>
+    <link rel="icon" href="glitch-area.vercel.app/icon.png">
     <style>
         body { margin: 0; overflow: hidden; background: black; color: white; font-family: 'Courier New', Courier, monospace; }
         #menu, #gameOver, #win {
@@ -16,18 +17,21 @@
             transition: 0.3s;
         }
         button:hover { background: #00ff00; color: black; box-shadow: 0 0 20px #00ff00; }
-        #hud { position: absolute; top: 20px; left: 20px; z-index: 5; font-size: 20px; color: #00ff00; }
+        #hud { position: absolute; top: 20px; left: 20px; z-index: 15; font-size: 20px; color: #00ff00; }
         #crosshair {
-            position: absolute; top: 50%; left: 50%;
-            transform: translate(-50%, -50%);
-            width: 30px; height: 30px;
-            border: 2px solid rgba(0, 255, 0, 0.5);
-            border-radius: 50%;
-            pointer-events: none; display: none;
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 40px; height: 40px; background: url("viseur.png") no-repeat center;
+            background-size: contain; pointer-events: none; display: none; z-index: 11;
         }
-        #crosshair::after {
+        #crosshair::before {
             content: ''; position: absolute; top: 50%; left: 50%;
-            width: 4px; height: 4px; background: #00ff00; transform: translate(-50%, -50%);
+            width: 10px; height: 10px; border: 1px solid #00ff00; border-radius: 50%;
+            transform: translate(-50%, -50%);
+        }
+        #maskOverlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(circle at center, transparent 40%, black 90%);
+            display: none; pointer-events: none; z-index: 6;
         }
     </style>
 </head>
@@ -35,7 +39,7 @@
 
 <div id="menu">
     <h1 style="font-size: 50px; letter-spacing: 10px; color: #00ff00;">GLITCH AREA</h1>
-    <p>[ WASD ] to Move | [ Mouse ] to Aim/Shoot | [ E ] for Shield</p>
+    <p>[ WASD ] to Move | [ Mouse ] to Aim | [ E ] for Shield</p>
     <button id="startBtn">INITIALIZE MISSION</button>
 </div>
 
@@ -54,6 +58,7 @@
     WAVE: <span id="waveTxt">1</span>
 </div>
 <div id="crosshair"></div>
+<div id="maskOverlay"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 
@@ -62,17 +67,19 @@ window.onload = function(){
     let scene, camera, renderer;
     let player, cameraPivot;
     let enemies=[], bullets=[], enemyBullets=[];
-    let walls=[];
+    let walls=[]; // Contiendra les boîtes de collision des murs
     let keys={}, hp=100, gameStarted=false, wave=1;
-    let shield, shieldHP=100;
+    let shield;
 
     const tempBox = new THREE.Box3();
+    const playerBox = new THREE.Box3();
 
     document.getElementById("startBtn").addEventListener("click", startGame);
 
     function startGame(){
         document.getElementById("menu").style.display="none";
         document.getElementById("crosshair").style.display="block";
+        document.getElementById("maskOverlay").style.display="block";
         init();
         spawnWave();
         gameStarted = true;
@@ -83,48 +90,52 @@ window.onload = function(){
     function init(){
         scene = new THREE.Scene();
         scene.background = new THREE.Color(0x020202);
-        scene.fog = new THREE.Fog(0x000000, 10, 80);
+        scene.fog = new THREE.Fog(0x000000, 10, 70);
 
         camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
         renderer = new THREE.WebGLRenderer({antialias:true});
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
 
-        scene.add(new THREE.HemisphereLight(0x00ff00, 0x222222, 0.8));
+        scene.add(new THREE.HemisphereLight(0x00ff00, 0x222222, 1.0));
 
-        // Sol quadrillé pour le style "Glitch"
-        let floorGeo = new THREE.PlaneGeometry(200, 200, 50, 50);
-        let floorMat = new THREE.MeshStandardMaterial({color: 0x111111, wireframe: true});
-        let floor = new THREE.Mesh(floorGeo, floorMat);
+        // Sol
+        let floor = new THREE.Mesh(
+            new THREE.PlaneGeometry(200, 200, 40, 40),
+            new THREE.MeshStandardMaterial({color: 0x050505, wireframe: true})
+        );
         floor.rotation.x = -Math.PI/2;
         scene.add(floor);
 
-        // Murs simples
+        // Système de murs avec collision
+        let wallTex = new THREE.TextureLoader().load("wall.png");
         function createWall(x, z, w, d){
-            let wall = new THREE.Mesh(
-                new THREE.BoxGeometry(w, 4, d),
-                new THREE.MeshStandardMaterial({color: 0x003300})
-            );
-            wall.position.set(x, 2, z);
+            let wallGeo = new THREE.BoxGeometry(w, 5, d);
+            let wallMat = new THREE.MeshStandardMaterial({map: wallTex, color: 0x113311});
+            let wall = new THREE.Mesh(wallGeo, wallMat);
+            wall.position.set(x, 2.5, z);
             scene.add(wall);
-            walls.push(wall);
+            
+            // On stocke la boîte de collision du mur
+            let box = new THREE.Box3().setFromObject(wall);
+            walls.push(box);
         }
         
+        // Création du labyrinthe
         for(let i=-30; i<=30; i+=15){
-            createWall(i, 0, 2, 20);
-            createWall(0, i, 20, 2);
+            createWall(i, 0, 2, 25);
+            createWall(0, i, 25, 2);
         }
 
         // Joueur
         player = new THREE.Object3D();
-        player.position.set(0, 1.6, 15);
+        player.position.set(0, 1.6, 20);
         scene.add(player);
 
         cameraPivot = new THREE.Object3D();
         player.add(cameraPivot);
         cameraPivot.add(camera);
 
-        // Bouclier (Sphère transparente)
         shield = new THREE.Mesh(
             new THREE.SphereGeometry(2, 16, 16),
             new THREE.MeshStandardMaterial({color: 0x00ffff, transparent: true, opacity: 0.2, wireframe: true})
@@ -132,10 +143,8 @@ window.onload = function(){
         shield.visible = false;
         scene.add(shield);
 
-        // Ecouteurs avec e.code (Indépendant de la langue du clavier)
         document.addEventListener("keydown", e => keys[e.code] = true);
         document.addEventListener("keyup", e => keys[e.code] = false);
-        
         document.addEventListener("keydown", e => {
             if(e.code === "KeyE") shield.visible = !shield.visible;
         });
@@ -158,18 +167,13 @@ window.onload = function(){
         });
     }
 
-    function spawnWave(){
-        document.getElementById("waveTxt").textContent = wave;
-        for(let i=0; i < wave * 3; i++){
-            let e = new THREE.Mesh(
-                new THREE.BoxGeometry(1.2, 2, 1.2),
-                new THREE.MeshStandardMaterial({color: 0xff0000, wireframe: true})
-            );
-            e.position.set((Math.random()-0.5)*50, 1, (Math.random()-0.5)*50 - 10);
-            e.userData = { cool: 100 };
-            scene.add(e);
-            enemies.push(e);
+    function checkCollision(pos) {
+        // Définit une petite boîte autour de la future position du joueur
+        playerBox.setFromCenterAndSize(pos, new THREE.Vector3(1, 2, 1));
+        for(let wallBox of walls) {
+            if(playerBox.intersectsBox(wallBox)) return true;
         }
+        return false;
     }
 
     function shoot(fromObj, array, color, speed){
@@ -182,11 +186,24 @@ window.onload = function(){
         array.push(b);
     }
 
+    function spawnWave(){
+        document.getElementById("waveTxt").textContent = wave;
+        for(let i=0; i < wave * 3; i++){
+            let e = new THREE.Mesh(
+                new THREE.BoxGeometry(1.2, 2, 1.2),
+                new THREE.MeshStandardMaterial({color: 0xff0000, wireframe: true})
+            );
+            e.position.set((Math.random()-0.5)*60, 1, (Math.random()-0.5)*60 - 20);
+            e.userData = { cool: 100 };
+            scene.add(e);
+            enemies.push(e);
+        }
+    }
+
     function animate(){
         if(!gameStarted) return;
         requestAnimationFrame(animate);
 
-        // Déplacement (Utilise KeyW, KeyA, etc.)
         let speed = 0.15;
         let move = new THREE.Vector3();
         let forward = new THREE.Vector3(0,0,-1).applyQuaternion(player.quaternion);
@@ -198,7 +215,24 @@ window.onload = function(){
         if(keys["KeyD"]) move.add(right);
         
         if(move.length() > 0){
-            player.position.add(move.normalize().multiplyScalar(speed));
+            move.normalize().multiplyScalar(speed);
+            
+            // Test de collision sur l'axe X puis Z pour permettre de glisser contre les murs
+            let nextPos = player.position.clone();
+            
+            // Test X
+            nextPos.x += move.x;
+            if(!checkCollision(nextPos)) {
+                player.position.x = nextPos.x;
+            } else {
+                nextPos.x = player.position.x;
+            }
+
+            // Test Z
+            nextPos.z += move.z;
+            if(!checkCollision(nextPos)) {
+                player.position.z = nextPos.z;
+            }
         }
 
         shield.position.copy(player.position);
@@ -208,7 +242,6 @@ window.onload = function(){
             let b = bullets[i];
             b.position.add(b.userData.vel);
             let hit = false;
-
             for(let j = enemies.length - 1; j >= 0; j--){
                 tempBox.setFromObject(enemies[j]);
                 if(tempBox.containsPoint(b.position)){
@@ -226,7 +259,6 @@ window.onload = function(){
         enemies.forEach(e => {
             e.lookAt(player.position);
             if(e.position.distanceTo(player.position) > 8) e.translateZ(0.04);
-            
             e.userData.cool--;
             if(e.userData.cool <= 0){
                 shoot(e, enemyBullets, 0xff0000, 0.4);
@@ -239,11 +271,9 @@ window.onload = function(){
             let b = enemyBullets[i];
             b.position.add(b.userData.vel);
             let dist = b.position.distanceTo(player.position);
-
             if(shield.visible && dist < 2.2){
                 scene.remove(b); enemyBullets.splice(i, 1); continue;
             }
-
             if(dist < 1.2){
                 hp -= 5;
                 document.getElementById("hp").textContent = hp;
