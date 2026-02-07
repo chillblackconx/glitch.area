@@ -55,33 +55,41 @@ z-index:6;
 <div id="crosshair"></div>
 <div id="maskOverlay"></div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 
-let scene,camera,renderer,player,cameraPivot;
-let enemies=[],bullets=[],enemyBullets=[];
-let keys={},hp=100,gameStarted=false;
+let scene, camera, renderer;
+let player, cameraPivot;
+let enemies=[], bullets=[], enemyBullets=[];
+let keys={}, hp=100, gameStarted=false;
 let wave=1;
-let spawnTimer=0;
 
 function startGame(){
 document.getElementById("menu").style.display="none";
 document.getElementById("crosshair").style.display="block";
+
 init();
 gameStarted=true;
+
 document.body.requestPointerLock();
+animate();
 }
 
 function init(){
 
 scene=new THREE.Scene();
-scene.fog=new THREE.Fog(0x000000,20,80);
+scene.background=new THREE.Color(0x000000);
+scene.fog=new THREE.Fog(0x000000,20,100);
 
-camera=new THREE.PerspectiveCamera(75,innerWidth/innerHeight,0.1,1000);
+camera=new THREE.PerspectiveCamera(75,window.innerWidth/window.innerHeight,0.1,1000);
+
 renderer=new THREE.WebGLRenderer({antialias:true});
-renderer.setSize(innerWidth,innerHeight);
+renderer.setSize(window.innerWidth,window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
-scene.add(new THREE.HemisphereLight(0xffffff,0x222222,1));
+// LIGHT
+let light=new THREE.HemisphereLight(0xffffff,0x222222,1.2);
+scene.add(light);
 
 // FLOOR
 let floor=new THREE.Mesh(
@@ -99,54 +107,21 @@ new THREE.MeshStandardMaterial({color:0x222222})
 player.position.set(0,1,0);
 scene.add(player);
 
-// CAMERA
+// CAMERA SYSTEM
 cameraPivot=new THREE.Object3D();
+cameraPivot.position.y=1.5;
 player.add(cameraPivot);
-cameraPivot.position.set(0,1.5,0);
 cameraPivot.add(camera);
 camera.position.set(0,0,0);
 
-// 🔫 DETAILED TEXTURED GUN
-let gun=new THREE.Group();
-
-let metalMat=new THREE.MeshStandardMaterial({
-color:0x555555,
-metalness:1,
-roughness:0.4
-});
-
-let body=new THREE.Mesh(
-new THREE.BoxGeometry(0.6,0.3,2),
-metalMat
+// GUN
+let gun=new THREE.Mesh(
+new THREE.BoxGeometry(0.4,0.3,1.5),
+new THREE.MeshStandardMaterial({color:0x555555,metalness:1,roughness:0.4})
 );
-body.position.set(0.7,-0.3,-1.5);
-gun.add(body);
-
-let slideDetail=new THREE.Mesh(
-new THREE.BoxGeometry(0.5,0.1,1.8),
-new THREE.MeshStandardMaterial({color:0x888888,metalness:1})
-);
-slideDetail.position.set(0.7,-0.15,-1.5);
-gun.add(slideDetail);
-
-let barrel=new THREE.Mesh(
-new THREE.CylinderGeometry(0.08,0.08,2,16),
-metalMat
-);
-barrel.rotation.x=Math.PI/2;
-barrel.position.set(0.7,-0.3,-2.5);
-gun.add(barrel);
-
-let grip=new THREE.Mesh(
-new THREE.BoxGeometry(0.4,1,0.4),
-new THREE.MeshStandardMaterial({color:0x333333})
-);
-grip.position.set(0.7,-1,-1);
-gun.add(grip);
-
+gun.position.set(0.5,-0.3,-1);
 camera.add(gun);
 
-animate();
 spawnWave();
 }
 
@@ -159,7 +134,7 @@ document.addEventListener("mousemove",(e)=>{
 if(document.pointerLockElement===document.body && gameStarted){
 yaw-=e.movementX*0.002;
 pitch-=e.movementY*0.002;
-pitch=Math.max(-0.5,Math.min(0.5,pitch));
+pitch=Math.max(-1.2,Math.min(1.2,pitch));
 player.rotation.y=yaw;
 cameraPivot.rotation.x=pitch;
 }
@@ -173,11 +148,12 @@ let b=new THREE.Mesh(
 new THREE.SphereGeometry(0.15),
 new THREE.MeshBasicMaterial({color:0xffffff})
 );
+
 b.position.copy(camera.getWorldPosition(new THREE.Vector3()));
 
 let dir=new THREE.Vector3();
 camera.getWorldDirection(dir);
-b.userData.vel=dir.multiplyScalar(1.2);
+b.userData.vel=dir.multiplyScalar(1);
 
 scene.add(b);
 bullets.push(b);
@@ -201,16 +177,19 @@ enemies.push(e);
 }
 }
 
-// GAME LOOP
+// LOOP
 function animate(){
 requestAnimationFrame(animate);
 if(!gameStarted) return;
 
+// MOVEMENT
 let forward=new THREE.Vector3();
 camera.getWorldDirection(forward);
-forward.y=0;forward.normalize();
+forward.y=0;
+forward.normalize();
 
 let right=new THREE.Vector3().crossVectors(forward,new THREE.Vector3(0,1,0));
+
 let speed=0.15;
 
 if(keys["w"]) player.position.add(forward.clone().multiplyScalar(speed));
@@ -280,6 +259,5 @@ renderer.render(scene,camera);
 }
 
 </script>
-
 </body>
 </html>
