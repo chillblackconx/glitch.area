@@ -21,8 +21,6 @@ background:url("viseur.png") no-repeat center;
 background-size:contain;
 pointer-events:none;display:none;
 }
-
-/* 🎭 MASK EFFECT */
 #maskOverlay{
 position:absolute;
 top:0;left:0;
@@ -38,7 +36,7 @@ z-index:6;
 
 <div id="menu">
 <h1>GLITCH AREA</h1>
-<button onclick="startGame()">Start Mission</button>
+<button id="startBtn">Start Mission</button>
 </div>
 
 <div id="gameOver" style="display:none;">
@@ -66,7 +64,9 @@ let keys={}, hp=100, gameStarted=false;
 let wave=1;
 let shield, shieldHP=100;
 
-// ================= START =================
+// ===== START MISSION =====
+document.getElementById("startBtn").addEventListener("click", startGame);
+
 function startGame(){
 document.getElementById("menu").style.display="none";
 document.getElementById("crosshair").style.display="block";
@@ -76,6 +76,7 @@ document.body.requestPointerLock();
 animate();
 }
 
+// ===== INIT =====
 function init(){
 
 scene=new THREE.Scene();
@@ -83,7 +84,6 @@ scene.background=new THREE.Color(0x000000);
 scene.fog=new THREE.Fog(0x000000,20,100);
 
 camera=new THREE.PerspectiveCamera(75,window.innerWidth/window.innerHeight,0.1,1000);
-
 renderer=new THREE.WebGLRenderer({antialias:true});
 renderer.setSize(window.innerWidth,window.innerHeight);
 document.body.appendChild(renderer.domElement);
@@ -99,7 +99,7 @@ new THREE.MeshStandardMaterial({color:0x111111})
 floor.rotation.x=-Math.PI/2;
 scene.add(floor);
 
-// ================= LABYRINTHE =================
+// ===== WALLS (labyrinthe simple) =====
 let wallTexture=new THREE.TextureLoader().load("wall.png");
 
 function createWall(x,z,w,h,d){
@@ -112,13 +112,13 @@ scene.add(wall);
 walls.push(wall);
 }
 
-// simple labyrinthe : murs verticaux et horizontaux
+// simple labyrinthe
 for(let i=-20;i<=20;i+=10){
-createWall(i,0,2,5,40); // murs verticaux
-createWall(0,i,40,5,2); // murs horizontaux
+createWall(i,0,2,5,40);
+createWall(0,i,40,5,2);
 }
 
-// ================= PLAYER =================
+// ===== PLAYER =====
 player=new THREE.Mesh(
 new THREE.BoxGeometry(1,2,1),
 new THREE.MeshStandardMaterial({color:0x222222})
@@ -133,7 +133,7 @@ player.add(cameraPivot);
 cameraPivot.add(camera);
 camera.position.set(0,0,0);
 
-// ================= GUN =================
+// ===== GUN =====
 let gun=new THREE.Mesh(
 new THREE.BoxGeometry(0.4,0.3,1.5),
 new THREE.MeshStandardMaterial({color:0x555555,metalness:1,roughness:0.4})
@@ -141,19 +141,15 @@ new THREE.MeshStandardMaterial({color:0x555555,metalness:1,roughness:0.4})
 gun.position.set(0.5,-0.3,-1);
 camera.add(gun);
 
-// ================= SHIELD =================
+// ===== SHIELD =====
 shield=new THREE.Mesh(
 new THREE.SphereGeometry(2,32,32),
-new THREE.MeshStandardMaterial({
-color:0x00ffff,
-transparent:true,
-opacity:0.25
-})
+new THREE.MeshStandardMaterial({color:0x00ffff,transparent:true,opacity:0.25})
 );
 shield.visible=false;
 scene.add(shield);
 
-// ================= ALLIES =================
+// ===== ALLIES =====
 function spawnAllies(){
 for(let i=0;i<2;i++){
 let a=new THREE.Mesh(
@@ -167,25 +163,21 @@ allies.push(a);
 }
 spawnAllies();
 
-// ================= SPAWN ENEMIS =================
+// ===== ENEMIES =====
 function spawnWave(){
-for(let i=0;i<wave*3;i++){
+for(let i=0;i<wave*2;i++){ // moins d'ennemis pour faciliter
 let e=new THREE.Mesh(
 new THREE.BoxGeometry(1.5,2,1.5),
 new THREE.MeshStandardMaterial({color:0x000000})
 );
-e.position.set(
-(Math.random()-0.5)*30,
-1,
-(Math.random()-0.5)*30
-);
+e.position.set((Math.random()-0.5)*30,1,(Math.random()-0.5)*30);
 e.userData.cool=0;
 scene.add(e);
 enemies.push(e);
 }
 }
 
-// ================= CONTROLS =================
+// ===== CONTROLS =====
 document.addEventListener("keydown",e=>{
 keys[e.key.toLowerCase()]=true;
 if(e.key.toLowerCase()==="e") shield.visible=!shield.visible;
@@ -203,7 +195,7 @@ cameraPivot.rotation.x=pitch;
 }
 });
 
-// ================= SHOOT =================
+// ===== SHOOT =====
 document.addEventListener("mousedown",()=>{
 if(!gameStarted) return;
 let b=new THREE.Mesh(
@@ -218,7 +210,7 @@ scene.add(b);
 bullets.push(b);
 });
 
-// ================= LOOP =================
+// ===== ANIMATE LOOP =====
 function animate(){
 requestAnimationFrame(animate);
 if(!gameStarted) return;
@@ -226,10 +218,9 @@ if(!gameStarted) return;
 // PLAYER MOVE
 let forward=new THREE.Vector3();
 camera.getWorldDirection(forward);
-forward.y=0;
-forward.normalize();
+forward.y=0; forward.normalize();
 let right=new THREE.Vector3().crossVectors(forward,new THREE.Vector3(0,1,0));
-let speed=0.15;
+let speed=0.12;
 let nextPos=player.position.clone();
 if(keys["w"]) nextPos.add(forward.clone().multiplyScalar(speed));
 if(keys["s"]) nextPos.add(forward.clone().multiplyScalar(-speed));
@@ -239,28 +230,22 @@ if(keys["d"]) nextPos.add(right.clone().multiplyScalar(speed));
 // collision murs joueur
 let blocked=false;
 walls.forEach(w=>{
-let box=new THREE.Box3().setFromObject(w);
-if(box.containsPoint(nextPos)) blocked=true;
+if(new THREE.Box3().setFromObject(w).containsPoint(nextPos)) blocked=true;
 });
 if(!blocked) player.position.copy(nextPos);
-
-// shield
 shield.position.copy(player.position);
 
 // PLAYER BULLETS
 bullets.forEach((b,bi)=>{
 b.position.add(b.userData.vel);
-// murs
 walls.forEach(w=>{
 if(new THREE.Box3().setFromObject(w).containsPoint(b.position)){
 scene.remove(b); bullets.splice(bi,1);
 }
 });
-// ennemis
 enemies.forEach((e,ei)=>{
 if(new THREE.Box3().setFromObject(e).containsPoint(b.position)){
-scene.remove(e); enemies.splice(ei,1);
-scene.remove(b); bullets.splice(bi,1);
+scene.remove(e); enemies.splice(ei,1); scene.remove(b); bullets.splice(bi,1);
 }
 });
 });
@@ -269,12 +254,13 @@ scene.remove(b); bullets.splice(bi,1);
 enemies.forEach(e=>{
 e.lookAt(player.position);
 let dir=player.position.clone().sub(e.position).normalize();
-let move=e.position.clone().add(dir.multiplyScalar(0.03));
+let move=e.position.clone().add(dir.multiplyScalar(0.02)); // plus lent pour facile
 let blocked=false;
 walls.forEach(w=>{
 if(new THREE.Box3().setFromObject(w).containsPoint(move)) blocked=true;
 });
 if(!blocked) e.position.copy(move);
+
 e.userData.cool--;
 if(e.userData.cool<=0){
 let b=new THREE.Mesh(
@@ -282,9 +268,9 @@ new THREE.SphereGeometry(0.2),
 new THREE.MeshBasicMaterial({color:0xffffff})
 );
 b.position.copy(e.position);
-b.userData.vel=player.position.clone().sub(e.position).normalize().multiplyScalar(0.4);
+b.userData.vel=player.position.clone().sub(e.position).normalize().multiplyScalar(0.3); // plus lent
 scene.add(b); enemyBullets.push(b);
-e.userData.cool=120;
+e.userData.cool=150; // tir plus lent
 }
 });
 
@@ -294,7 +280,7 @@ if(enemies.length>0){
 let target=enemies[0];
 a.lookAt(target.position);
 let dir=target.position.clone().sub(a.position).normalize();
-let move=a.position.clone().add(dir.multiplyScalar(0.05));
+let move=a.position.clone().add(dir.multiplyScalar(0.04));
 let blocked=false;
 walls.forEach(w=>{
 if(new THREE.Box3().setFromObject(w).containsPoint(move)) blocked=true;
@@ -302,13 +288,13 @@ if(new THREE.Box3().setFromObject(w).containsPoint(move)) blocked=true;
 if(!blocked) a.position.copy(move);
 
 // tirer
-if(Math.random()<0.01){
+if(Math.random()<0.02){
 let b=new THREE.Mesh(
 new THREE.SphereGeometry(0.15),
 new THREE.MeshBasicMaterial({color:0x00ff00})
 );
 b.position.copy(a.position);
-b.userData.vel=target.position.clone().sub(a.position).normalize().multiplyScalar(0.7);
+b.userData.vel=target.position.clone().sub(a.position).normalize().multiplyScalar(0.5);
 scene.add(b);
 allyBullets.push(b);
 }
@@ -329,18 +315,15 @@ scene.remove(b); allyBullets.splice(bi,1);
 // ENEMY BULLETS
 enemyBullets.forEach((b,bi)=>{
 b.position.add(b.userData.vel);
-// murs
 walls.forEach(w=>{
 if(new THREE.Box3().setFromObject(w).containsPoint(b.position)){
 scene.remove(b); enemyBullets.splice(bi,1);
 }
 });
-// shield
 if(shield.visible && shieldHP>0 && b.position.distanceTo(player.position)<2){
 shieldHP-=10; scene.remove(b); enemyBullets.splice(bi,1);
 if(shieldHP<=0) shield.visible=false; return;
 }
-// joueur
 if(b.position.distanceTo(player.position)<1){
 hp-=5; document.getElementById("hp").textContent=hp;
 scene.remove(b); enemyBullets.splice(bi,1);
