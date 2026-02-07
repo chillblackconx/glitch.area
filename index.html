@@ -55,17 +55,13 @@ z-index:6;
 <div id="crosshair"></div>
 <div id="maskOverlay"></div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 
 let scene,camera,renderer,player,cameraPivot;
 let enemies=[],bullets=[],enemyBullets=[];
 let keys={},hp=100,gameStarted=false;
-let artefact,extractionZone;
-let hasArtefact=false;
-
-let maskZone;
-let maskOn=false;
+let wave=1;
+let spawnTimer=0;
 
 function startGame(){
 document.getElementById("menu").style.display="none";
@@ -76,6 +72,7 @@ document.body.requestPointerLock();
 }
 
 function init(){
+
 scene=new THREE.Scene();
 scene.fog=new THREE.Fog(0x000000,20,80);
 
@@ -99,7 +96,7 @@ player=new THREE.Mesh(
 new THREE.BoxGeometry(1,2,1),
 new THREE.MeshStandardMaterial({color:0x222222})
 );
-player.position.set(0,1,10);
+player.position.set(0,1,0);
 scene.add(player);
 
 // CAMERA
@@ -107,36 +104,53 @@ cameraPivot=new THREE.Object3D();
 player.add(cameraPivot);
 cameraPivot.position.set(0,1.5,0);
 cameraPivot.add(camera);
-camera.position.set(0,2,6);
+camera.position.set(0,0,0);
 
-// MASK ZONE
-maskZone=new THREE.Mesh(
-new THREE.BoxGeometry(10,5,10),
-new THREE.MeshBasicMaterial({visible:false})
-);
-maskZone.position.set(0,2.5,-15);
-scene.add(maskZone);
+// 🔫 DETAILED TEXTURED GUN
+let gun=new THREE.Group();
 
-// ARTEFACT
-artefact=new THREE.Mesh(
-new THREE.IcosahedronGeometry(1,0),
-new THREE.MeshStandardMaterial({color:0xffffff,emissive:0x333333})
-);
-artefact.position.set(0,1,-20);
-scene.add(artefact);
+let metalMat=new THREE.MeshStandardMaterial({
+color:0x555555,
+metalness:1,
+roughness:0.4
+});
 
-// EXTRACTION
-extractionZone=new THREE.Mesh(
-new THREE.CircleGeometry(3,32),
-new THREE.MeshBasicMaterial({color:0xffffff,wireframe:true})
+let body=new THREE.Mesh(
+new THREE.BoxGeometry(0.6,0.3,2),
+metalMat
 );
-extractionZone.rotation.x=-Math.PI/2;
-extractionZone.position.set(0,0,20);
-scene.add(extractionZone);
+body.position.set(0.7,-0.3,-1.5);
+gun.add(body);
+
+let slideDetail=new THREE.Mesh(
+new THREE.BoxGeometry(0.5,0.1,1.8),
+new THREE.MeshStandardMaterial({color:0x888888,metalness:1})
+);
+slideDetail.position.set(0.7,-0.15,-1.5);
+gun.add(slideDetail);
+
+let barrel=new THREE.Mesh(
+new THREE.CylinderGeometry(0.08,0.08,2,16),
+metalMat
+);
+barrel.rotation.x=Math.PI/2;
+barrel.position.set(0.7,-0.3,-2.5);
+gun.add(barrel);
+
+let grip=new THREE.Mesh(
+new THREE.BoxGeometry(0.4,1,0.4),
+new THREE.MeshStandardMaterial({color:0x333333})
+);
+grip.position.set(0.7,-1,-1);
+gun.add(grip);
+
+camera.add(gun);
 
 animate();
+spawnWave();
 }
 
+// CONTROLS
 document.addEventListener("keydown",e=>keys[e.key.toLowerCase()]=true);
 document.addEventListener("keyup",e=>keys[e.key.toLowerCase()]=false);
 
@@ -151,6 +165,43 @@ cameraPivot.rotation.x=pitch;
 }
 });
 
+// SHOOT
+document.addEventListener("mousedown",()=>{
+if(!gameStarted) return;
+
+let b=new THREE.Mesh(
+new THREE.SphereGeometry(0.15),
+new THREE.MeshBasicMaterial({color:0xffffff})
+);
+b.position.copy(camera.getWorldPosition(new THREE.Vector3()));
+
+let dir=new THREE.Vector3();
+camera.getWorldDirection(dir);
+b.userData.vel=dir.multiplyScalar(1.2);
+
+scene.add(b);
+bullets.push(b);
+});
+
+// SPAWN WAVE
+function spawnWave(){
+for(let i=0;i<wave*3;i++){
+let e=new THREE.Mesh(
+new THREE.BoxGeometry(1.5,2,1.5),
+new THREE.MeshStandardMaterial({color:0x000000})
+);
+e.position.set(
+(Math.random()-0.5)*60,
+1,
+(Math.random()-0.5)*60
+);
+e.userData.cool=0;
+scene.add(e);
+enemies.push(e);
+}
+}
+
+// GAME LOOP
 function animate(){
 requestAnimationFrame(animate);
 if(!gameStarted) return;
@@ -158,26 +209,77 @@ if(!gameStarted) return;
 let forward=new THREE.Vector3();
 camera.getWorldDirection(forward);
 forward.y=0;forward.normalize();
+
 let right=new THREE.Vector3().crossVectors(forward,new THREE.Vector3(0,1,0));
-let speed=0.12;
+let speed=0.15;
 
 if(keys["w"]) player.position.add(forward.clone().multiplyScalar(speed));
 if(keys["s"]) player.position.add(forward.clone().multiplyScalar(-speed));
 if(keys["a"]) player.position.add(right.clone().multiplyScalar(-speed));
 if(keys["d"]) player.position.add(right.clone().multiplyScalar(speed));
 
-/* 🎭 MASK ACTIVATION */
-if(!maskOn){
-let playerBox=new THREE.Box3().setFromObject(player);
-let zoneBox=new THREE.Box3().setFromObject(maskZone);
-if(playerBox.intersectsBox(zoneBox)){
-maskOn=true;
-document.getElementById("maskOverlay").style.display="block";
+// PLAYER BULLETS
+bullets.forEach((b)=>{
+b.position.add(b.userData.vel);
+
+enemies.forEach((e,i)=>{
+if(b.position.distanceTo(e.position)<1){
+scene.remove(e);
+enemies.splice(i,1);
+}
+});
+});
+
+// ENEMY AI
+enemies.forEach(e=>{
+e.lookAt(player.position);
+
+let dir=player.position.clone().sub(e.position).normalize();
+e.position.add(dir.multiplyScalar(0.03));
+
+e.userData.cool--;
+if(e.userData.cool<=0){
+let b=new THREE.Mesh(
+new THREE.SphereGeometry(0.2),
+new THREE.MeshBasicMaterial({color:0xffffff})
+);
+b.position.copy(e.position);
+b.userData.vel=player.position.clone().sub(e.position).normalize().multiplyScalar(0.4);
+scene.add(b);
+enemyBullets.push(b);
+e.userData.cool=120;
+}
+});
+
+// ENEMY BULLETS
+enemyBullets.forEach(b=>{
+b.position.add(b.userData.vel);
+if(b.position.distanceTo(player.position)<1){
+hp-=5;
+document.getElementById("hp").textContent=hp;
+scene.remove(b);
+if(hp<=0){
+document.getElementById("gameOver").style.display="flex";
+gameStarted=false;
+}
+}
+});
+
+// NEXT WAVE
+if(enemies.length===0){
+wave++;
+if(wave>5){
+document.getElementById("win").style.display="flex";
+gameStarted=false;
+}else{
+spawnWave();
 }
 }
 
 renderer.render(scene,camera);
 }
+
 </script>
+
 </body>
 </html>
