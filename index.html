@@ -2,52 +2,35 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Glitch Area</title>
-
-<!-- FAVICON -->
-<link rel="icon" type="image/png" href="icon.png">
-
+<title>Glitch Area - Infiltration</title>
+<link rel="icon" href="icon.png">
 <style>
-body { margin:0; overflow:hidden; background:black; font-family:Arial; }
-
-#menu, #gameOver {
-position:absolute;
-top:0; left:0;
-width:100%; height:100%;
-background:black;
-display:flex;
-flex-direction:column;
-justify-content:center;
-align-items:center;
-color:white;
-z-index:10;
+body{margin:0;overflow:hidden;background:black;color:white;font-family:Arial;}
+#menu,#gameOver,#win{
+position:absolute;top:0;left:0;width:100%;height:100%;
+display:flex;flex-direction:column;justify-content:center;align-items:center;
+background:black;z-index:10;
 }
-
-button{
-padding:15px 30px;
-font-size:20px;
-cursor:pointer;
-}
-
-#hud{
-position:absolute;
-top:10px;
-left:10px;
-color:white;
-z-index:5;
-}
-
+button{padding:15px 30px;font-size:18px;cursor:pointer;}
+#hud{position:absolute;top:10px;left:10px;z-index:5;}
 #crosshair{
-position:absolute;
-top:50%; left:50%;
+position:absolute;top:50%;left:50%;
 transform:translate(-50%,-50%);
-width:40px;
-height:40px;
+width:40px;height:40px;
 background:url("viseur.png") no-repeat center;
 background-size:contain;
-pointer-events:none;
+pointer-events:none;display:none;
+}
+
+/* 🎭 MASK EFFECT */
+#maskOverlay{
+position:absolute;
+top:0;left:0;
+width:100%;height:100%;
+background:radial-gradient(circle at center, transparent 55%, black 100%);
 display:none;
-z-index:5;
+pointer-events:none;
+z-index:6;
 }
 </style>
 </head>
@@ -55,199 +38,146 @@ z-index:5;
 
 <div id="menu">
 <h1>GLITCH AREA</h1>
-<button onclick="startGame()">Start Game</button>
+<button onclick="startGame()">Start Mission</button>
 </div>
 
 <div id="gameOver" style="display:none;">
-<h1>GAME OVER</h1>
-<button onclick="location.reload()">Restart</button>
+<h1>MISSION FAILED</h1>
+<button onclick="location.reload()">Retry</button>
+</div>
+
+<div id="win" style="display:none;">
+<h1>MISSION COMPLETE</h1>
+<button onclick="location.reload()">Replay</button>
 </div>
 
 <div id="hud">HP: <span id="hp">100</span></div>
 <div id="crosshair"></div>
+<div id="maskOverlay"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 
-let scene, camera, renderer, player;
-let enemies = [], enemyBullets = [], bullets = [];
-let keys = {};
-let hp = 100;
-let gameStarted = false;
+let scene,camera,renderer,player,cameraPivot;
+let enemies=[],bullets=[],enemyBullets=[];
+let keys={},hp=100,gameStarted=false;
+let artefact,extractionZone;
+let hasArtefact=false;
+
+let maskZone;
+let maskOn=false;
 
 function startGame(){
 document.getElementById("menu").style.display="none";
 document.getElementById("crosshair").style.display="block";
 init();
-gameStarted = true;
+gameStarted=true;
 document.body.requestPointerLock();
 }
 
 function init(){
-scene = new THREE.Scene();
-scene.background = new THREE.Color(0x000000);
+scene=new THREE.Scene();
+scene.fog=new THREE.Fog(0x000000,20,80);
 
-camera = new THREE.PerspectiveCamera(75,innerWidth/innerHeight,0.1,1000);
-renderer = new THREE.WebGLRenderer({antialias:true});
+camera=new THREE.PerspectiveCamera(75,innerWidth/innerHeight,0.1,1000);
+renderer=new THREE.WebGLRenderer({antialias:true});
 renderer.setSize(innerWidth,innerHeight);
 document.body.appendChild(renderer.domElement);
 
-scene.add(new THREE.HemisphereLight(0xffffff,0x444444,1));
+scene.add(new THREE.HemisphereLight(0xffffff,0x222222,1));
 
 // FLOOR
-let floor = new THREE.Mesh(
+let floor=new THREE.Mesh(
 new THREE.PlaneGeometry(200,200),
 new THREE.MeshStandardMaterial({color:0x111111})
 );
-floor.rotation.x = -Math.PI/2;
+floor.rotation.x=-Math.PI/2;
 scene.add(floor);
 
 // PLAYER
-player = new THREE.Object3D();
-player.position.set(0,1.6,0);
+player=new THREE.Mesh(
+new THREE.BoxGeometry(1,2,1),
+new THREE.MeshStandardMaterial({color:0x222222})
+);
+player.position.set(0,1,10);
 scene.add(player);
-player.add(camera);
 
-// WALLS (Labyrinth style)
-let wallMat = new THREE.MeshStandardMaterial({color:0x222222});
-for(let x=-40;x<=40;x+=10){
-for(let z=-40;z<=40;z+=10){
-if(Math.random()>0.6){
-let wall = new THREE.Mesh(new THREE.BoxGeometry(8,4,1),wallMat);
-wall.position.set(x,2,z);
-scene.add(wall);
-}
-}
-}
+// CAMERA
+cameraPivot=new THREE.Object3D();
+player.add(cameraPivot);
+cameraPivot.position.set(0,1.5,0);
+cameraPivot.add(camera);
+camera.position.set(0,2,6);
 
-// ENEMIES
-for(let i=0;i<5;i++){
-createEnemy((Math.random()-0.5)*60,(Math.random()-0.5)*60);
-}
+// MASK ZONE
+maskZone=new THREE.Mesh(
+new THREE.BoxGeometry(10,5,10),
+new THREE.MeshBasicMaterial({visible:false})
+);
+maskZone.position.set(0,2.5,-15);
+scene.add(maskZone);
+
+// ARTEFACT
+artefact=new THREE.Mesh(
+new THREE.IcosahedronGeometry(1,0),
+new THREE.MeshStandardMaterial({color:0xffffff,emissive:0x333333})
+);
+artefact.position.set(0,1,-20);
+scene.add(artefact);
+
+// EXTRACTION
+extractionZone=new THREE.Mesh(
+new THREE.CircleGeometry(3,32),
+new THREE.MeshBasicMaterial({color:0xffffff,wireframe:true})
+);
+extractionZone.rotation.x=-Math.PI/2;
+extractionZone.position.set(0,0,20);
+scene.add(extractionZone);
 
 animate();
 }
 
-function createEnemy(x,z){
-let enemy = new THREE.Group();
-
-let body = new THREE.Mesh(
-new THREE.BoxGeometry(1.5,2,1.5),
-new THREE.MeshStandardMaterial({color:0x000000})
-);
-body.position.y=1;
-enemy.add(body);
-
-enemy.position.set(x,0,z);
-enemy.userData.cool=0;
-
-scene.add(enemy);
-enemies.push(enemy);
-}
-
-// CONTROLS
 document.addEventListener("keydown",e=>keys[e.key.toLowerCase()]=true);
 document.addEventListener("keyup",e=>keys[e.key.toLowerCase()]=false);
 
 let yaw=0,pitch=0;
 document.addEventListener("mousemove",(e)=>{
 if(document.pointerLockElement===document.body && gameStarted){
-yaw -= e.movementX*0.002;
-pitch -= e.movementY*0.002;
-pitch=Math.max(-Math.PI/2,Math.min(Math.PI/2,pitch));
+yaw-=e.movementX*0.002;
+pitch-=e.movementY*0.002;
+pitch=Math.max(-0.5,Math.min(0.5,pitch));
 player.rotation.y=yaw;
-camera.rotation.x=pitch;
+cameraPivot.rotation.x=pitch;
 }
 });
 
-// SHOOT (Raycast direction exact centre)
-document.addEventListener("mousedown",()=>{
-if(!gameStarted) return;
-
-let bullet = new THREE.Mesh(
-new THREE.SphereGeometry(0.1),
-new THREE.MeshBasicMaterial({color:0xffff00})
-);
-
-bullet.position.copy(camera.getWorldPosition(new THREE.Vector3()));
-
-// direction EXACT centre screen
-let dir = new THREE.Vector3();
-camera.getWorldDirection(dir);
-bullet.userData.vel = dir.multiplyScalar(1.2);
-
-scene.add(bullet);
-bullets.push(bullet);
-});
-
-// LOOP
 function animate(){
 requestAnimationFrame(animate);
 if(!gameStarted) return;
 
-// MOVE
 let forward=new THREE.Vector3();
 camera.getWorldDirection(forward);
-forward.y=0;
-forward.normalize();
-
+forward.y=0;forward.normalize();
 let right=new THREE.Vector3().crossVectors(forward,new THREE.Vector3(0,1,0));
+let speed=0.12;
 
-if(keys["w"]) player.position.add(forward.clone().multiplyScalar(0.3));
-if(keys["s"]) player.position.add(forward.clone().multiplyScalar(-0.3));
-if(keys["a"]) player.position.add(right.clone().multiplyScalar(0.3));
-if(keys["d"]) player.position.add(right.clone().multiplyScalar(-0.3));
+if(keys["w"]) player.position.add(forward.clone().multiplyScalar(speed));
+if(keys["s"]) player.position.add(forward.clone().multiplyScalar(-speed));
+if(keys["a"]) player.position.add(right.clone().multiplyScalar(-speed));
+if(keys["d"]) player.position.add(right.clone().multiplyScalar(speed));
 
-player.position.y=1.6;
-
-// PLAYER BULLETS
-bullets.forEach((b,i)=>{
-b.position.add(b.userData.vel);
-
-enemies.forEach((e,ei)=>{
-if(b.position.distanceTo(e.position)<1){
-scene.remove(e);
-enemies.splice(ei,1);
-}
-});
-});
-
-// ENEMIES SHOOT
-enemies.forEach(e=>{
-e.lookAt(player.position);
-e.userData.cool--;
-if(e.userData.cool<=0){
-let bullet=new THREE.Mesh(
-new THREE.SphereGeometry(0.15),
-new THREE.MeshBasicMaterial({color:0xff0000})
-);
-bullet.position.copy(e.position);
-bullet.position.y=1;
-let dir=player.position.clone().sub(e.position).normalize();
-bullet.userData.vel=dir.multiplyScalar(0.5);
-scene.add(bullet);
-enemyBullets.push(bullet);
-e.userData.cool=100;
-}
-});
-
-// ENEMY BULLETS
-enemyBullets.forEach(b=>{
-b.position.add(b.userData.vel);
-if(b.position.distanceTo(player.position)<1){
-hp -= 10;
-document.getElementById("hp").textContent=hp;
-scene.remove(b);
-if(hp<=0){
-document.getElementById("gameOver").style.display="flex";
-gameStarted=false;
+/* 🎭 MASK ACTIVATION */
+if(!maskOn){
+let playerBox=new THREE.Box3().setFromObject(player);
+let zoneBox=new THREE.Box3().setFromObject(maskZone);
+if(playerBox.intersectsBox(zoneBox)){
+maskOn=true;
+document.getElementById("maskOverlay").style.display="block";
 }
 }
-});
 
 renderer.render(scene,camera);
 }
 </script>
 </body>
 </html>
-
